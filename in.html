@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Taner Biçki - WebCBS Projesi</title>
+    
+    <!-- Tailwind CSS for modern, responsive UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Leaflet Draw CSS & JS (For drawing point, line, polygon and measurement) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    
+    <!-- Turf.js (For spatial analysis like Buffer, Intersect, Area) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+    
+    <!-- Leaflet Heat (For Heatmap / Isı Adası analysis) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+
+    <!-- PapaParse (For reading CSV files) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    
+    <!-- SheetJS (For reading Excel xls/xlsx files) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Inter', sans-serif; overflow: hidden; }
+        
+        /* Map container needs a proper z-index to stay below floating UI elements */
+        #map { height: 100%; width: 100%; z-index: 10; }
+        
+        /* Custom scrollbar for sidebar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Make Leaflet Draw controls fit the modern theme slightly better */
+        .leaflet-draw-toolbar a { background-color: #f8fafc; color: #334155; }
+        
+        .sidebar-btn {
+            display: flex; align-items: center; justify-content: start; width: 100%;
+            padding: 0.75rem 1rem; margin-bottom: 0.5rem;
+            background-color: #f1f5f9; color: #334155; border-radius: 0.5rem;
+            transition: all 0.2s; font-weight: 500; font-size: 0.875rem; border: 1px solid #e2e8f0;
+        }
+        .sidebar-btn:hover { background-color: #e2e8f0; transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .sidebar-btn i { width: 24px; font-size: 1.1rem; color: #2563eb; margin-right: 0.5rem; }
+        
+        .panel-section { margin-bottom: 1.5rem; }
+        .panel-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 700; margin-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.25rem;}
+    </style>
+</head>
+<body class="flex flex-col h-screen bg-slate-50 text-slate-800">
+
+    <!-- Navbar -->
+    <header class="bg-blue-800 text-white shadow-md z-50 relative flex justify-between items-center px-6 py-3">
+        <div class="flex items-center gap-3">
+            <div class="bg-white p-2 rounded-lg">
+                <i class="fa-solid fa-earth-europe text-blue-800 text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold leading-tight">WebCBS <span class="text-blue-300 text-sm font-normal">Eğitim Platformu</span></h1>
+                <p class="text-xs text-blue-200">Hazırlayan: Coğrafya Öğretmeni Taner Biçki</p>
+            </div>
+        </div>
+        <div class="text-sm font-medium bg-blue-700 px-3 py-1.5 rounded border border-blue-600 shadow-inner">
+            <i class="fa-solid fa-graduation-cap mr-2"></i>Coğrafi Bilgi Sistemleri Sınıfı
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="flex flex-1 overflow-hidden relative">
+        
+        <!-- Left Sidebar (Tools) -->
+        <aside class="w-80 bg-white shadow-xl z-40 flex flex-col h-full border-r border-slate-200 overflow-y-auto">
+            <div class="p-5 flex-1">
+                <p class="text-sm text-slate-500 mb-6 leading-relaxed">
+                    Öğrenciler için interaktif coğrafi analiz arayüzü. Sol panelden araçları seçerek harita üzerinde çalışabilirsiniz.
+                </p>
+
+                <!-- Layer Selection -->
+                <div class="panel-section">
+                    <h3 class="panel-title">Altlık Haritalar</h3>
+                    <select id="basemap-selector" class="w-full bg-slate-50 border border-slate-300 text-slate-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 outline-none transition-colors">
+                        <option value="osm">Sokak Haritası (OSM)</option>
+                        <option value="satellite">Uydu Görüntüsü (Esri)</option>
+                        <option value="topo">Topoğrafya (OpenTopoMap)</option>
+                        <option value="dark">Koyu Tema (CartoDB)</option>
+                    </select>
+                </div>
+
+                <!-- Analysis Tools -->
+                <div class="panel-section">
+                    <h3 class="panel-title">Mekansal Analizler</h3>
+                    <button onclick="createBuffer()" class="sidebar-btn" title="Çizilen alanların veya noktaların etrafında 10km tampon bölge oluşturur.">
+                        <i class="fa-solid fa-circle-dot"></i> Tampon Bölge (Buffer 10km)
+                    </button>
+                    <button onclick="createHeatmap()" class="sidebar-btn" title="Nokta yoğunluğuna göre ısı adası oluşturur.">
+                        <i class="fa-solid fa-fire"></i> Isı Adası (Heatmap)
+                    </button>
+                    <button onclick="mockChoropleth()" class="sidebar-btn" title="Çizilen poligonlara rastgele değerler atayarak Koroplet (Tematik) harita görünümü verir.">
+                        <i class="fa-solid fa-palette"></i> Koroplet Harita (Simülasyon)
+                    </button>
+                </div>
+
+                <!-- Data Management -->
+                <div class="panel-section">
+                    <h3 class="panel-title">Veri Yönetimi</h3>
+                    <label class="sidebar-btn cursor-pointer" title="GeoJSON, CSV veya Excel (.xlsx) dosyası yükleyin. Excel ve CSV için 'Enlem' ve 'Boylam' sütunları olmalıdır.">
+                        <i class="fa-solid fa-file-excel"></i> Tablo/GeoJSON Yükle
+                        <input type="file" id="file-upload" accept=".geojson,.json,.csv,.xlsx,.xls" class="hidden" onchange="handleFileUpload(event)">
+                    </label>
+                    <button onclick="clearMap()" class="sidebar-btn !text-red-600 hover:!bg-red-50 !border-red-100">
+                        <i class="fa-solid fa-trash-can !text-red-500"></i> Tüm Çizimleri Temizle
+                    </button>
+                </div>
+                
+                <div class="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-100 text-xs text-blue-800">
+                    <strong class="block mb-1"><i class="fa-solid fa-info-circle mr-1"></i> İpucu:</strong>
+                    Harita üzerindeki sol araç çubuğunu kullanarak nokta, çizgi ve poligon çizebilirsiniz. Alan ve mesafe ölçümleri çizim bittiğinde otomatik hesaplanır.
+                </div>
+            </div>
+        </aside>
+
+        <!-- Map Container -->
+        <main class="flex-1 relative">
+            <div id="map"></div>
+            
+            <!-- Floating Info Panel -->
+            <div id="info-panel" class="absolute bottom-6 right-6 bg-white/95 backdrop-blur shadow-lg rounded-lg p-4 border border-slate-200 z-50 w-64 hidden transition-opacity">
+                <h4 class="font-bold text-slate-800 text-sm mb-2 border-b pb-1"><i class="fa-solid fa-chart-pie mr-1 text-blue-600"></i> Öznitelik Bilgisi</h4>
+                <div id="info-content" class="text-xs text-slate-600"></div>
+                <button onclick="document.getElementById('info-panel').style.display='none'" class="mt-2 text-[10px] text-slate-400 hover:text-slate-600 underline">Kapat</button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- 1. HARİTA VE ALTLIK BAŞLATMA (MAP & BASEMAP INITIALIZATION) ---
+        // Merkezi Türkiye olacak şekilde ayarlıyoruz
+        const map = L.map('map').setView([39.0, 35.0], 6);
+
+        // Altlık Harita Tanımlamaları
+        const baseMaps = {
+            osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap'
+            }),
+            satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles &copy; Esri'
+            }),
+            topo: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+                maxZoom: 17,
+                attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap'
+            }),
+            dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+                subdomains: 'abcd',
+                maxZoom: 20
+            })
+        };
+
+        // Varsayılan altlığı ekle
+        baseMaps.osm.addTo(map);
+
+        // Altlık harita değişimi için event listener
+        document.getElementById('basemap-selector').addEventListener('change', function(e) {
+            // Önce tüm altlıkları kaldır
+            for (let key in baseMaps) {
+                if (map.hasLayer(baseMaps[key])) {
+                    map.removeLayer(baseMaps[key]);
+                }
+            }
+            // Seçileni ekle
+            baseMaps[e.target.value].addTo(map);
+        });
+
+        // --- 2. ÇİZİM ARAÇLARI (LEAFLET DRAW) ---
+        // Çizilen öğeleri tutacak katman
+        const drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+
+        // Analiz katmanlarını tutacak grup (Buffer, Heatmap vb. için)
+        const analysisLayer = new L.FeatureGroup();
+        map.addLayer(analysisLayer);
+
+        let heatmapLayer = null;
+
+        // Draw kontrolünü yapılandırma
+        const drawControl = new L.Control.Draw({
+            edit: {
+                featureGroup: drawnItems,
+                remove: true
+            },
+            draw: {
+                polygon: {
+                    allowIntersection: false,
+                    showArea: true,
+                    metric: true,
+                    shapeOptions: { color: '#2563eb', weight: 2, fillOpacity: 0.2 }
+                },
+                polyline: {
+                    metric: true,
+                    shapeOptions: { color: '#dc2626', weight: 3 }
+                },
+                rectangle: false, // Basitleştirmek için kapattık
+                circle: false,    // Turf.js ile poligon buffer kullanacağız
+                circlemarker: false,
+                marker: {
+                    icon: L.icon({
+                        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+                        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+                        iconAnchor: [12, 41]
+                    })
+                }
+            }
+        });
+        map.addControl(drawControl);
+
+        // Çizim tamamlandığında tetiklenen olay
+        map.on(L.Draw.Event.CREATED, function (event) {
+            const layer = event.layer;
+            const type = event.layerType;
+
+            // Turf.js formatına çevir (ölçümler için)
+            const geojson = layer.toGeoJSON();
+            let popupContent = `<b>Öznitelik Bilgisi</b><br>Tip: ${type === 'marker' ? 'Nokta' : type === 'polyline' ? 'Çizgi' : 'Alan'}<br>`;
+
+            // Mesafe ve Alan Ölçümü (Turf.js ile hesaplama)
+            if (type === 'polygon') {
+                const area = turf.area(geojson);
+                const areaKm2 = (area / 1000000).toFixed(2);
+                popupContent += `Alan: ${areaKm2} km²`;
+                
+                // Simülasyon için rastgele bir veri (Nüfus vb.) ekleyelim
+                layer.feature = geojson;
+                layer.feature.properties = {
+                    isim: "Öğrenci Çalışma Alanı",
+                    deger: Math.floor(Math.random() * 1000)
+                };
+
+            } else if (type === 'polyline') {
+                const length = turf.length(geojson, {units: 'kilometers'});
+                popupContent += `Uzunluk: ${length.toFixed(2)} km`;
+                layer.feature = geojson;
+            } else if (type === 'marker') {
+                popupContent += `Koordinat: ${layer.getLatLng().lat.toFixed(4)}, ${layer.getLatLng().lng.toFixed(4)}`;
+                layer.feature = geojson;
+            }
+
+            // Pop-up ekle ve katmana kaydet
+            layer.bindPopup(popupContent);
+            
+            // Tıklandığında yan panelde de bilgi göster
+            layer.on('click', function(e) {
+                showInfoPanel(popupContent);
+            });
+
+            drawnItems.addLayer(layer);
+        });
+
+        function showInfoPanel(content) {
+            const panel = document.getElementById('info-panel');
+            const contentDiv = document.getElementById('info-content');
+            contentDiv.innerHTML = content;
+            panel.style.display = 'block';
+        }
+
+        // --- 3. MEKANSAL ANALİZ FONKSİYONLARI ---
+
+        // 3a. Tampon Bölge (Buffer) Oluşturma
+        function createBuffer() {
+            if (drawnItems.getLayers().length === 0) {
+                alert("Lütfen önce haritaya nokta, çizgi veya alan çizin!");
+                return;
+            }
+
+            // Önceki analizleri temizle
+            analysisLayer.clearLayers();
+
+            drawnItems.eachLayer(function(layer) {
+                if (layer.feature) {
+                    try {
+                        // Turf.js ile 10 km buffer (tampon) hesapla
+                        const buffered = turf.buffer(layer.feature, 10, {units: 'kilometers'});
+                        
+                        // Buffer'ı haritaya Leaflet layer olarak ekle
+                        const bufferLayer = L.geoJSON(buffered, {
+                            style: {
+                                color: '#f59e0b', // Turuncu
+                                weight: 2,
+                                fillOpacity: 0.3,
+                                dashArray: '5, 5'
+                            }
+                        }).bindPopup("<b>Tampon Bölge</b><br>Mesafe: 10 km");
+                        
+                        analysisLayer.addLayer(bufferLayer);
+                    } catch (e) {
+                        console.error("Buffer oluşturulamadı: ", e);
+                    }
+                }
+            });
+        }
+
+        // 3b. Isı Adası (Heatmap) Oluşturma
+        function createHeatmap() {
+            // Varsa eski heatmap'i kaldır
+            if (heatmapLayer) {
+                map.removeLayer(heatmapLayer);
+                heatmapLayer = null;
+            }
+
+            const points = [];
+            
+            // Çizilen noktaları topla
+            drawnItems.eachLayer(function(layer) {
+                if (layer instanceof L.Marker || layer instanceof L.CircleMarker) {
+                    points.push([layer.getLatLng().lat, layer.getLatLng().lng, 1]); // 1 intensity
+                }
+            });
+
+            if (points.length === 0) {
+                alert("Isı haritası için haritada çizilmiş veya yüklenmiş 'Nokta' verisi bulunamadı.");
+                return;
+            }
+
+            // Leaflet.heat ile heatmap katmanı oluştur
+            heatmapLayer = L.heatLayer(points, {
+                radius: 40,
+                blur: 25,
+                maxZoom: 10,
+                gradient: {0.4: 'blue', 0.6: 'lime', 0.8: 'yellow', 1.0: 'red'}
+            }).addTo(map);
+        }
+
+        // 3c. Koroplet Harita (Renk-Değer Simülasyonu)
+        function mockChoropleth() {
+            let hasPolygons = false;
+            
+            drawnItems.eachLayer(function(layer) {
+                if (layer instanceof L.Polygon) {
+                    hasPolygons = true;
+                    // Rastgele bir değer üret (eğer yoksa)
+                    const val = (layer.feature && layer.feature.properties && layer.feature.properties.deger) 
+                                ? layer.feature.properties.deger 
+                                : Math.floor(Math.random() * 100);
+                    
+                    // Değere göre renk belirleme fonksiyonu
+                    let color = val > 800 ? '#800026' :
+                                val > 600 ? '#BD0026' :
+                                val > 400 ? '#E31A1C' :
+                                val > 200 ? '#FC4E2A' :
+                                            '#FED976';
+                    
+                    layer.setStyle({
+                        fillColor: color,
+                        fillOpacity: 0.7,
+                        color: 'white',
+                        weight: 2
+                    });
+
+                    // Pop-up bilgisini güncelle
+                    layer.bindPopup(`<b>Koroplet Analizi</b><br>Tahmini Yoğunluk Değeri: ${val}`);
+                }
+            });
+
+            if (!hasPolygons) {
+                alert("Koroplet harita simülasyonu için haritaya 'Alan' (Poligon) çizmelisiniz.");
+            }
+        }
+
+        // --- 4. VERİ YÜKLEME VE TEMİZLEME ---
+
+        // Dosya Yükleme Ana Yönlendiricisi
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const fileName = file.name.toLowerCase();
+
+            if (fileName.endsWith('.geojson') || fileName.endsWith('.json')) {
+                loadGeoJSONFile(file);
+            } else if (fileName.endsWith('.csv')) {
+                loadCSVFile(file);
+            } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+                loadExcelFile(file);
+            } else {
+                alert("Desteklenmeyen dosya formatı. Lütfen GeoJSON, CSV veya Excel dosyası yükleyin.");
+            }
+            
+            // İnputu sıfırla (aynı dosyayı tekrar seçebilmek için)
+            document.getElementById('file-upload').value = '';
+        }
+
+        // 4a. GeoJSON Yükleme Fonksiyonu
+        function loadGeoJSONFile(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const geojsonData = JSON.parse(e.target.result);
+                    addGeoJSONToMap(geojsonData);
+                } catch (error) {
+                    alert("GeoJSON okuma hatası!\nDetay: " + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // 4b. CSV Yükleme Fonksiyonu
+        function loadCSVFile(file) {
+            Papa.parse(file, {
+                header: true,
+                dynamicTyping: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    processTabularData(results.data);
+                },
+                error: function(error) {
+                    alert("CSV okuma hatası!\nDetay: " + error.message);
+                }
+            });
+        }
+
+        // 4c. Excel Yükleme Fonksiyonu
+        function loadExcelFile(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const json = XLSX.utils.sheet_to_json(worksheet);
+                    processTabularData(json);
+                } catch (error) {
+                    alert("Excel okuma hatası!\nDetay: " + error.message);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // Tablo (CSV/Excel) Verisini Haritaya İşleme
+        function processTabularData(data) {
+            if (!data || data.length === 0) {
+                alert("Dosya boş veya okunamadı.");
+                return;
+            }
+
+            // Enlem ve Boylam sütunlarını otomatik bulma (Türkçe ve İngilizce kombinasyonları)
+            const keys = Object.keys(data[0]);
+            let latKey = keys.find(k => k.toLowerCase().match(/lat|enlem|y_coord|y/));
+            let lonKey = keys.find(k => k.toLowerCase().match(/lon|lng|boylam|x_coord|x/));
+
+            if (!latKey || !lonKey) {
+                alert("HATA: Dosyada koordinat sütunları bulunamadı!\nLütfen Excel/CSV dosyanızdaki koordinat sütun isimlerini 'Enlem' ve 'Boylam' (veya 'Lat' ve 'Lon') olarak değiştirip tekrar deneyin.");
+                return;
+            }
+
+            const geojsonFeatures = [];
+
+            data.forEach(row => {
+                const lat = parseFloat(row[latKey]);
+                const lon = parseFloat(row[lonKey]);
+
+                if (!isNaN(lat) && !isNaN(lon)) {
+                    geojsonFeatures.push({
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "Point",
+                            "coordinates": [lon, lat] // GeoJSON formatı [Boylam, Enlem] şeklindedir
+                        },
+                        "properties": row
+                    });
+                }
+            });
+
+            if (geojsonFeatures.length === 0) {
+                alert("Geçerli koordinat sayıları bulunamadı.");
+                return;
+            }
+
+            const featureCollection = {
+                "type": "FeatureCollection",
+                "features": geojsonFeatures
+            };
+
+            addGeoJSONToMap(featureCollection, true);
+            alert(`${geojsonFeatures.length} adet nokta haritaya başarıyla aktarıldı!`);
+        }
+
+        // GeoJSON verisini haritaya ekleyen ortak fonksiyon
+        function addGeoJSONToMap(geojsonData, isPoints = false) {
+            const newLayer = L.geoJSON(geojsonData, {
+                pointToLayer: function (feature, latlng) {
+                    // Yüklenen noktaları daire şeklinde belirgin çiz
+                    return L.circleMarker(latlng, {
+                        radius: 7,
+                        fillColor: "#e11d48", // Gül kurusu/Kırmızı
+                        color: "#fff",
+                        weight: 2,
+                        opacity: 1,
+                        fillOpacity: 0.8
+                    });
+                },
+                onEachFeature: function(feature, layer) {
+                    if (feature.properties) {
+                        let popupHtml = '<div style="max-height: 200px; overflow-y: auto;"><b>Veri Özellikleri</b><br><table class="text-xs mt-2 border-collapse border border-slate-300 w-full">';
+                        for (let key in feature.properties) {
+                            if (feature.properties[key] !== null && feature.properties[key] !== undefined) {
+                                popupHtml += `<tr><td class="border border-slate-300 p-1 font-bold bg-slate-50">${key}</td><td class="border border-slate-300 p-1">${feature.properties[key]}</td></tr>`;
+                            }
+                        }
+                        popupHtml += '</table></div>';
+                        layer.bindPopup(popupHtml);
+                        layer.feature = feature; 
+                    }
+                }
+            });
+            
+            drawnItems.addLayer(newLayer);
+            map.fitBounds(newLayer.getBounds());
+        }
+
+        // Haritayı Temizleme
+        function clearMap() {
+            if(confirm("Tüm çizimleri ve analizleri silmek istediğinize emin misiniz?")) {
+                drawnItems.clearLayers();
+                analysisLayer.clearLayers();
+                if (heatmapLayer) {
+                    map.removeLayer(heatmapLayer);
+                    heatmapLayer = null;
+                }
+                document.getElementById('info-panel').style.display = 'none';
+            }
+        }
+
+    </script>
+</body>
+</html>
